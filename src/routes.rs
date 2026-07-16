@@ -9,6 +9,7 @@ use serde_json::json;
 use sha2::Digest;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use tower_http::services::{ServeDir, ServeFile};
 
 pub const MAX_MESSAGES: usize = 500;
 pub const MAX_TEXT_BYTES: usize = 100_000;
@@ -287,12 +288,15 @@ async fn delete_share_route(
 }
 
 pub fn router(state: AppState) -> Router {
+    let index = state.cfg.web_dir.join("index.html");
+    let spa = ServeDir::new(&state.cfg.web_dir).fallback(ServeFile::new(index));
     Router::new()
         .route("/api/shares", post(create_share))
         .route(
             "/api/shares/{device_id}/{share_id}",
             get(get_share_json).delete(delete_share_route),
         )
+        .fallback_service(spa)
         .layer(DefaultBodyLimit::max(BODY_LIMIT_BYTES))
         .with_state(state)
 }
@@ -308,21 +312,25 @@ mod tests {
     const SECRET: &str = "test-secret-0123";
     const DEVICE: &str = "abcdef0123456789";
 
-    fn test_state(device_daily_limit: i64, ip_minute_limit: u32) -> AppState {
+    fn test_state_with(daily: i64, minute: u32, web_dir: Option<std::path::PathBuf>) -> AppState {
         let cfg = crate::config::Config {
             listen: "127.0.0.1:0".parse().unwrap(),
             db_path: "unused".into(),
             base_url: "http://sh.test".into(),
             secret: SECRET.into(),
-            web_dir: "unused".into(),
-            device_daily_limit,
-            ip_minute_limit,
+            web_dir: web_dir.unwrap_or_else(|| "unused".into()),
+            device_daily_limit: daily,
+            ip_minute_limit: minute,
         };
         AppState {
             db: std::sync::Arc::new(std::sync::Mutex::new(crate::store::open_in_memory().unwrap())),
             cfg: std::sync::Arc::new(cfg),
             ip_hits: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
         }
+    }
+
+    fn test_state(daily: i64, minute: u32) -> AppState {
+        test_state_with(daily, minute, None)
     }
 
     fn now() -> i64 {
@@ -518,5 +526,42 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         let resp = app.oneshot(plain_get(&format!("/api/shares/{DEVICE}/{share_id}"))).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK, "错 token 不应误删");
+    }
+
+    #[tokio::test]
+    async fn spa_fallback_serves_index_html() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("index.html"), "<!doctype html><title>LC-SPA</title>").unwrap();
+        let app = router(test_state_with(50, 20, Some(dir.path().to_path_buf())));
+        let resp = app.oneshot(plain_get(&format!("/s/{DEVICE}/AbCdEfGhIjKl"))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(String::from_utf8_lossy(&bytes).contains("LC-SPA"));
+    }
+
+    /// 上一任务评审收口:DELETE 端点同样受 2MB body 上限保护,补齐覆盖。
+    #[tokio::test]
+    async fn delete_oversize_body_413() {
+        let app = router(test_state(50, 20));
+        let share_id = "AbCdEfGhIjKl";
+        let path = format!("/api/shares/{DEVICE}/{share_id}");
+        let body = "a".repeat(BODY_LIMIT_BYTES + 1);
+        let ts = now();
+        let sig = crate::auth::compute_signature(SECRET, ts, "DELETE", &path, body.as_bytes(), DEVICE);
+        let mut req = Request::builder()
+            .method("DELETE")
+            .uri(&path)
+            .header("content-type", "application/json")
+            .header("x-device-id", DEVICE)
+            .header("x-timestamp", ts.to_string())
+            .header("x-signature", sig)
+            .body(Body::from(body))
+            .unwrap();
+        req.extensions_mut().insert(axum::extract::ConnectInfo(
+            std::net::SocketAddr::from(([127, 0, 0, 1], 9999)),
+        ));
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(body_json(resp).await["error"]["code"], "payload_too_large");
     }
 }

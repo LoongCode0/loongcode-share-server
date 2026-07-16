@@ -1,0 +1,31 @@
+:root {
+  --bg: #12100c; --panel: #1e1b15; --border: #2e2a20;
+  --fg: #e8e2d0; --fg-soft: #d6cfba; --muted: #8a8370;
+  --gold: #c9a24a; --gold-hi: #e7c979;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg-soft); font: 14px/1.8 system-ui, "Segoe UI", sans-serif; }
+.page { max-width: 720px; margin: 0 auto; padding: 28px 20px 40px; }
+.brand { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
+.logo { display: inline-flex; width: 28px; height: 28px; border-radius: 8px; align-items: center; justify-content: center; font-weight: 800; color: #17150f; background: linear-gradient(135deg, var(--gold-hi), var(--gold)); }
+.brand-name { color: var(--fg); font-weight: 700; }
+.head { padding: 18px 0 6px; }
+.title { color: var(--fg); font-size: 19px; margin: 2px 0 6px; }
+.small { font-size: 12px; }
+.muted { color: var(--muted); }
+.row { margin-top: 16px; }
+.row.user { display: flex; justify-content: flex-end; }
+.row.user .bubble { max-width: 85%; background: #241f16; border: 1px solid #322c1f; border-radius: 12px; padding: 11px 15px; color: var(--fg); white-space: pre-wrap; word-break: break-word; }
+.row.assistant { color: var(--fg-soft); overflow-wrap: break-word; }
+.row.assistant pre { background: #1a1712; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+.row.assistant code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+.row.assistant :not(pre) > code { background: #241f16; color: var(--gold-hi); padding: 1px 5px; border-radius: 4px; }
+.row.assistant a { color: var(--gold-hi); }
+.row.assistant table { border-collapse: collapse; display: block; overflow-x: auto; }
+.row.assistant th, .row.assistant td { border: 1px solid var(--border); padding: 6px 10px; }
+.foot { margin-top: 26px; padding-top: 12px; border-top: 1px solid var(--border); display: flex; justify-content: space-between; gap: 12px; }
+.foot a { color: var(--gold); text-decoration: none; }
+.center { min-height: 70vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; padding: 0 20px; }
+.nf-icon { font-size: 34px; }
+.nf-title { color: var(--fg); font-size: 16px; margin: 0; }
+.cta { margin-top: 10px; background: linear-gradient(135deg, var(--gold-hi), var(--gold)); color: #17150f; font-weight: 600; font-size: 13px; padding: 8px 18px; border-radius: 8px; text-decoration: none; }

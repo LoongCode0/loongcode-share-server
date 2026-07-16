@@ -7,8 +7,6 @@ pub struct Config {
     pub db_path: PathBuf,
     pub base_url: String,
     pub secret: String,
-    #[allow(dead_code)]
-    // Task 5 静态托管接入后删除本行 allow
     pub web_dir: PathBuf,
     pub device_daily_limit: i64,
     pub ip_minute_limit: u32,
