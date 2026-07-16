@@ -5,3 +5,4 @@
 /web/tsconfig.tsbuildinfo
 /.superpowers
 *.log
+.env
