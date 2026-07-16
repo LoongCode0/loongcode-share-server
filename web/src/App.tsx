@@ -8,6 +8,17 @@ const THEME_STORAGE_KEY = "loongcode-share:theme";
 const THEME_ORDER: readonly ThemeName[] = ["dark", "light", "eyecare"];
 const THEME_LABELS: Record<ThemeName, string> = { dark: "深色", light: "浅色", eyecare: "护眼" };
 
+// 按主题选择 logo / favicon 资源。映射需与客户端仓库 src/lib/logoSrc.ts 的
+// LOGO_BY_THEME 保持同步（三主题各一张 256x256 PNG，未知主题一律回落 dark 版）。
+const LOGO_BY_THEME: Record<string, string> = {
+  dark: "/logo.png",
+  light: "/logo-light.png",
+  eyecare: "/logo-eyecare.png",
+};
+function logoSrcForTheme(theme: string): string {
+  return LOGO_BY_THEME[theme] ?? "/logo.png";
+}
+
 function isThemeName(v: string | null): v is ThemeName {
   return v === "dark" || v === "light" || v === "eyecare";
 }
@@ -26,6 +37,10 @@ function useTheme(): { theme: ThemeName; cycleTheme: () => void } {
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
+    // favicon 随主题同步；index.html 的防闪烁内联脚本已在首帧前做过一次同样的事，
+    // 这里是运行期切换主题时的后续同步。
+    const favicon = document.querySelector<HTMLLinkElement>('link[rel="icon"]');
+    if (favicon) favicon.href = logoSrcForTheme(theme);
     try {
       window.localStorage.setItem(THEME_STORAGE_KEY, theme);
     } catch {
@@ -61,23 +76,7 @@ function fmt(tsSecs: number): string {
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
-export function App() {
-  const [state, setState] = useState<ViewState>({ kind: "loading" });
-  const { theme, cycleTheme } = useTheme();
-
-  useEffect(() => {
-    const target = parsePath(window.location.pathname);
-    if (!target) { setState({ kind: "notFound" }); return; }
-    fetch(`/api/shares/${target.device}/${target.share}`)
-      .then(async (r) => {
-        if (!r.ok) { setState({ kind: "notFound" }); return; }
-        const data = (await r.json()) as ShareData;
-        document.title = `${data.taskTitle} · LoongCode 分享`;
-        setState({ kind: "ok", data });
-      })
-      .catch(() => setState({ kind: "notFound" }));
-  }, []);
-
+function ShareView({ state, theme, cycleTheme }: { state: ViewState; theme: ThemeName; cycleTheme: () => void }) {
   if (state.kind === "loading") return <div className="center muted">加载中…</div>;
   if (state.kind === "notFound") {
     return (
@@ -94,7 +93,7 @@ export function App() {
   return (
     <div className="page">
       <header className="brand">
-        <img src="/logo.png" alt="LoongCode" className="logo" />
+        <img src={logoSrcForTheme(theme)} alt="LoongCode" className="logo" />
         <span className="brand-name">LoongCode</span>
         <span className="muted small">· 分享的对话</span>
         <button
@@ -132,5 +131,32 @@ export function App() {
         <span>由 <a href="https://loongcode.cc" rel="noreferrer">LoongCode</a> 生成</span>
       </footer>
     </div>
+  );
+}
+
+export function App() {
+  const [state, setState] = useState<ViewState>({ kind: "loading" });
+  const { theme, cycleTheme } = useTheme();
+
+  useEffect(() => {
+    const target = parsePath(window.location.pathname);
+    if (!target) { setState({ kind: "notFound" }); return; }
+    fetch(`/api/shares/${target.device}/${target.share}`)
+      .then(async (r) => {
+        if (!r.ok) { setState({ kind: "notFound" }); return; }
+        const data = (await r.json()) as ShareData;
+        document.title = `${data.taskTitle} · LoongCode 分享`;
+        setState({ kind: "ok", data });
+      })
+      .catch(() => setState({ kind: "notFound" }));
+  }, []);
+
+  return (
+    <>
+      <ShareView state={state} theme={theme} cycleTheme={cycleTheme} />
+      <footer className="icp">
+        <a href="https://beian.miit.gov.cn/" target="_blank" rel="noreferrer">湘ICP备2023030882号-2</a>
+      </footer>
+    </>
   );
 }

@@ -2,20 +2,28 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <script>
-      (function () {
-        try {
-          var t = window.localStorage.getItem("loongcode-share:theme");
-          if (t !== "light" && t !== "eyecare" && t !== "dark") t = "dark";
-          document.documentElement.dataset.theme = t;
-        } catch (e) {
-          document.documentElement.dataset.theme = "dark";
-        }
-      })();
-    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex" />
     <link rel="icon" type="image/png" href="/logo.png" />
+    <script>
+      (function () {
+        // 与 src/App.tsx 的 LOGO_BY_THEME / logoSrcForTheme 保持同一份映射；
+        // 这里独立复制一份是因为该脚本必须在 React 挂载前同步执行，无法 import 模块代码。
+        var LOGO_BY_THEME = { dark: "/logo.png", light: "/logo-light.png", eyecare: "/logo-eyecare.png" };
+        var t = "dark";
+        try {
+          var stored = window.localStorage.getItem("loongcode-share:theme");
+          if (stored === "light" || stored === "eyecare" || stored === "dark") t = stored;
+        } catch (e) {
+          t = "dark";
+        }
+        document.documentElement.dataset.theme = t;
+        // <link rel="icon"> 已在本脚本之前解析完成，此处才能查到元素；
+        // 顺带同步 favicon，避免首帧图标与已持久化的主题不一致。
+        var favicon = document.querySelector('link[rel="icon"]');
+        if (favicon) favicon.href = LOGO_BY_THEME[t] || "/logo.png";
+      })();
+    </script>
     <title>LoongCode · 分享的对话</title>
   </head>
   <body>
