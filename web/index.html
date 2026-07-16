@@ -2,8 +2,20 @@
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function () {
+        try {
+          var t = window.localStorage.getItem("loongcode-share:theme");
+          if (t !== "light" && t !== "eyecare" && t !== "dark") t = "dark";
+          document.documentElement.dataset.theme = t;
+        } catch (e) {
+          document.documentElement.dataset.theme = "dark";
+        }
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="robots" content="noindex" />
+    <link rel="icon" type="image/png" href="/logo.png" />
     <title>LoongCode · 分享的对话</title>
   </head>
   <body>

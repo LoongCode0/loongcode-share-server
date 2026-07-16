@@ -3,6 +3,43 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 
+type ThemeName = "dark" | "light" | "eyecare";
+const THEME_STORAGE_KEY = "loongcode-share:theme";
+const THEME_ORDER: readonly ThemeName[] = ["dark", "light", "eyecare"];
+const THEME_LABELS: Record<ThemeName, string> = { dark: "深色", light: "浅色", eyecare: "护眼" };
+
+function isThemeName(v: string | null): v is ThemeName {
+  return v === "dark" || v === "light" || v === "eyecare";
+}
+
+function readStoredTheme(): ThemeName {
+  try {
+    const v = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return isThemeName(v) ? v : "dark";
+  } catch {
+    return "dark";
+  }
+}
+
+function useTheme(): { theme: ThemeName; cycleTheme: () => void } {
+  const [theme, setTheme] = useState<ThemeName>(readStoredTheme);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    try {
+      window.localStorage.setItem(THEME_STORAGE_KEY, theme);
+    } catch {
+      // localStorage 不可用（隐私模式等）时忽略持久化，仅当次会话生效
+    }
+  }, [theme]);
+
+  const cycleTheme = () => {
+    setTheme((prev) => THEME_ORDER[(THEME_ORDER.indexOf(prev) + 1) % THEME_ORDER.length]);
+  };
+
+  return { theme, cycleTheme };
+}
+
 interface ShareMessage { role: "user" | "assistant"; text: string }
 interface ShareData {
   workspaceName: string;
@@ -26,6 +63,7 @@ function fmt(tsSecs: number): string {
 
 export function App() {
   const [state, setState] = useState<ViewState>({ kind: "loading" });
+  const { theme, cycleTheme } = useTheme();
 
   useEffect(() => {
     const target = parsePath(window.location.pathname);
@@ -56,9 +94,18 @@ export function App() {
   return (
     <div className="page">
       <header className="brand">
-        <span className="logo">龙</span>
+        <img src="/logo.png" alt="LoongCode" className="logo" />
         <span className="brand-name">LoongCode</span>
         <span className="muted small">· 分享的对话</span>
+        <button
+          type="button"
+          className="theme-toggle"
+          onClick={cycleTheme}
+          title={`当前主题：${THEME_LABELS[theme]}`}
+          aria-label={`当前主题：${THEME_LABELS[theme]}，点击切换`}
+        >
+          ◑
+        </button>
       </header>
       <section className="head">
         <div className="muted small">{data.workspaceName}</div>

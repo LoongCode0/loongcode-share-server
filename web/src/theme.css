@@ -1,25 +1,58 @@
 :root {
-  --bg: #12100c; --panel: #1e1b15; --border: #2e2a20;
+  --bg: #12100c; --panel: #241f16; --border: #2e2a20;
   --fg: #e8e2d0; --fg-soft: #d6cfba; --muted: #8a8370;
   --gold: #c9a24a; --gold-hi: #e7c979;
+  /* 代码块固定深色：highlight.js github-dark 样式表不随主题切换，三主题同值 */
+  --code-bg: #1a1712; --code-border: #2e2a20;
 }
+
+/* ===== 浅色 · 宣纸（映射客户端 globals.css [data-theme="light"]） ===== */
+html[data-theme="light"] {
+  --bg: #f5f2eb; --panel: #e8e2d4; --border: #e2ddd4;
+  --fg: #312c25; --fg-soft: #454039; --muted: #766d60;
+  --gold: #8a6a14; --gold-hi: #a8791f;
+}
+
+/* ===== 护眼 · 竹青（映射客户端 globals.css [data-theme="eyecare"]） ===== */
+html[data-theme="eyecare"] {
+  --bg: #eaeee8; --panel: #dbe0d6; --border: #d8d9d2;
+  --fg: #2a2c26; --fg-soft: #3d3f39; --muted: #666d5f;
+  --gold: #266a78; --gold-hi: #358d97;
+}
+
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--fg-soft); font: 14px/1.8 system-ui, "Segoe UI", sans-serif; }
+body { margin: 0; background: var(--bg); color: var(--fg-soft); font: 14px/1.8 system-ui, "Segoe UI", sans-serif; transition: background 0.2s ease, color 0.2s ease; }
 .page { max-width: 720px; margin: 0 auto; padding: 28px 20px 40px; }
 .brand { display: flex; align-items: center; gap: 10px; padding-bottom: 14px; border-bottom: 1px solid var(--border); }
-.logo { display: inline-flex; width: 28px; height: 28px; border-radius: 8px; align-items: center; justify-content: center; font-weight: 800; color: #17150f; background: linear-gradient(135deg, var(--gold-hi), var(--gold)); }
+.logo { width: 28px; height: 28px; border-radius: 8px; display: block; }
 .brand-name { color: var(--fg); font-weight: 700; }
+.theme-toggle {
+  margin-left: auto;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--fg-soft);
+  font-size: 13px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+.theme-toggle:hover { border-color: var(--gold); color: var(--gold-hi); }
 .head { padding: 18px 0 6px; }
 .title { color: var(--fg); font-size: 19px; margin: 2px 0 6px; }
 .small { font-size: 12px; }
 .muted { color: var(--muted); }
 .row { margin-top: 16px; }
 .row.user { display: flex; justify-content: flex-end; }
-.row.user .bubble { max-width: 85%; background: #241f16; border: 1px solid #322c1f; border-radius: 12px; padding: 11px 15px; color: var(--fg); white-space: pre-wrap; word-break: break-word; }
+.row.user .bubble { max-width: 85%; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 11px 15px; color: var(--fg); white-space: pre-wrap; word-break: break-word; }
 .row.assistant { color: var(--fg-soft); overflow-wrap: break-word; }
-.row.assistant pre { background: #1a1712; border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
+.row.assistant pre { background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 8px; padding: 12px 14px; overflow-x: auto; }
 .row.assistant code { font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
-.row.assistant :not(pre) > code { background: #241f16; color: var(--gold-hi); padding: 1px 5px; border-radius: 4px; }
+.row.assistant :not(pre) > code { background: var(--panel); color: var(--gold-hi); padding: 1px 5px; border-radius: 4px; }
 .row.assistant a { color: var(--gold-hi); }
 .row.assistant table { border-collapse: collapse; display: block; overflow-x: auto; }
 .row.assistant th, .row.assistant td { border: 1px solid var(--border); padding: 6px 10px; }
