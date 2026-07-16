@@ -13,8 +13,6 @@ pub struct ShareRow {
     pub expires_at: i64,
 }
 
-#[allow(dead_code)]
-// Task 4 接入 main 后删除本行 allow
 pub fn open(path: &std::path::Path) -> Result<Connection> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
@@ -24,6 +22,8 @@ pub fn open(path: &std::path::Path) -> Result<Connection> {
     Ok(conn)
 }
 
+/// 仅测试使用：生产路径走 open(路径)。
+#[cfg(test)]
 pub fn open_in_memory() -> Result<Connection> {
     let conn = Connection::open_in_memory()?;
     migrate(&conn)?;

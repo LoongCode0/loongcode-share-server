@@ -1,8 +1,8 @@
 use axum::body::Bytes;
-use axum::extract::{ConnectInfo, DefaultBodyLimit, State};
+use axum::extract::{ConnectInfo, DefaultBodyLimit, Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -207,9 +207,92 @@ async fn create_share(
     err(StatusCode::INTERNAL_SERVER_ERROR, "internal", "分享 ID 生成冲突")
 }
 
+fn is_valid_share_id(s: &str) -> bool {
+    s.len() == 12 && s.bytes().all(|b| b.is_ascii_alphanumeric())
+}
+
+const NOT_FOUND_MSG: &str = "分享不存在或已过期";
+
+async fn get_share_json(
+    State(state): State<AppState>,
+    Path((device_id, share_id)): Path<(String, String)>,
+) -> Response {
+    if !crate::auth::is_valid_device_id(&device_id) || !is_valid_share_id(&share_id) {
+        return err(StatusCode::NOT_FOUND, "not_found", NOT_FOUND_MSG);
+    }
+    let now = now_secs();
+    let db = state.db.lock().unwrap();
+    match crate::store::get_share(&db, &device_id, &share_id, now) {
+        Ok(Some(row)) => {
+            let messages: serde_json::Value =
+                serde_json::from_str(&row.payload_json).unwrap_or_else(|_| json!([]));
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "workspaceName": row.workspace_name,
+                    "taskTitle": row.task_title,
+                    "createdAt": row.created_at,
+                    "expiresAt": row.expires_at,
+                    "messages": messages,
+                })),
+            )
+                .into_response()
+        }
+        Ok(None) => err(StatusCode::NOT_FOUND, "not_found", NOT_FOUND_MSG),
+        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, "internal", "存储错误"),
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeleteReq {
+    delete_token: String,
+}
+
+async fn delete_share_route(
+    State(state): State<AppState>,
+    Path((device_id, share_id)): Path<(String, String)>,
+    headers: HeaderMap,
+    body: Result<Bytes, axum::extract::rejection::BytesRejection>,
+) -> Response {
+    let now = now_secs();
+    let body = match body {
+        Ok(b) => b,
+        Err(rej) => {
+            let status = rej.status();
+            let code = if status == StatusCode::PAYLOAD_TOO_LARGE { "payload_too_large" } else { "bad_request" };
+            return err(status, code, "请求体超限或不可读");
+        }
+    };
+    let path = format!("/api/shares/{device_id}/{share_id}");
+    let signer = match verify_headers(&state, &headers, "DELETE", &path, &body, now) {
+        Ok(d) => d,
+        Err(resp) => return resp,
+    };
+    // 归属校验：签名设备 ≠ 路径设备 → 与不存在同样 404，不泄露存在性。
+    if signer != device_id || !is_valid_share_id(&share_id) {
+        return err(StatusCode::NOT_FOUND, "not_found", NOT_FOUND_MSG);
+    }
+    let req: DeleteReq = match serde_json::from_slice(&body) {
+        Ok(r) => r,
+        Err(_) => return err(StatusCode::BAD_REQUEST, "bad_request", "请求体解析失败"),
+    };
+    let token_hash = hex::encode(sha2::Sha256::digest(req.delete_token.as_bytes()));
+    let db = state.db.lock().unwrap();
+    match crate::store::delete_share(&db, &device_id, &share_id, &token_hash) {
+        Ok(true) => (StatusCode::OK, Json(json!({ "ok": true }))).into_response(),
+        Ok(false) => err(StatusCode::NOT_FOUND, "not_found", NOT_FOUND_MSG),
+        Err(_) => err(StatusCode::INTERNAL_SERVER_ERROR, "internal", "存储错误"),
+    }
+}
+
 pub fn router(state: AppState) -> Router {
     Router::new()
         .route("/api/shares", post(create_share))
+        .route(
+            "/api/shares/{device_id}/{share_id}",
+            get(get_share_json).delete(delete_share_route),
+        )
         .layer(DefaultBodyLimit::max(BODY_LIMIT_BYTES))
         .with_state(state)
 }
@@ -353,5 +436,87 @@ mod tests {
         let resp = app.oneshot(signed_post(&body, None)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
         assert_eq!(body_json(resp).await["error"]["code"], "payload_too_large");
+    }
+
+    /// 建一条分享并返回 (share_id, delete_token)。
+    async fn create_one(app: &Router) -> (String, String) {
+        let resp = app.clone().oneshot(signed_post(&valid_body(), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let v = body_json(resp).await;
+        (v["shareId"].as_str().unwrap().into(), v["deleteToken"].as_str().unwrap().into())
+    }
+
+    fn signed_delete(share_id: &str, delete_token: &str) -> Request<Body> {
+        let ts = now();
+        let path = format!("/api/shares/{DEVICE}/{share_id}");
+        let body = format!(r#"{{"deleteToken":"{delete_token}"}}"#);
+        let sig = crate::auth::compute_signature(SECRET, ts, "DELETE", &path, body.as_bytes(), DEVICE);
+        let mut req = Request::builder()
+            .method("DELETE")
+            .uri(&path)
+            .header("content-type", "application/json")
+            .header("x-device-id", DEVICE)
+            .header("x-timestamp", ts.to_string())
+            .header("x-signature", sig)
+            .body(Body::from(body))
+            .unwrap();
+        req.extensions_mut().insert(axum::extract::ConnectInfo(
+            std::net::SocketAddr::from(([127, 0, 0, 1], 9999)),
+        ));
+        req
+    }
+
+    fn plain_get(path: &str) -> Request<Body> {
+        let mut req = Request::builder().uri(path).body(Body::empty()).unwrap();
+        req.extensions_mut().insert(axum::extract::ConnectInfo(
+            std::net::SocketAddr::from(([127, 0, 0, 1], 9999)),
+        ));
+        req
+    }
+
+    #[tokio::test]
+    async fn get_share_roundtrip() {
+        let app = router(test_state(50, 20));
+        let (share_id, _) = create_one(&app).await;
+        let resp = app.oneshot(plain_get(&format!("/api/shares/{DEVICE}/{share_id}"))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let v = body_json(resp).await;
+        assert_eq!(v["workspaceName"], "longlong-ade");
+        assert_eq!(v["taskTitle"], "标题");
+        assert_eq!(v["messages"].as_array().unwrap().len(), 2);
+        assert_eq!(v["messages"][0]["role"], "user");
+    }
+
+    #[tokio::test]
+    async fn missing_and_bad_format_share_uniform_404() {
+        let app = router(test_state(50, 20));
+        for path in [
+            &format!("/api/shares/{DEVICE}/ZzZzZzZzZzZz"),
+            "/api/shares/BADDEVICE/ZzZzZzZzZzZz",
+        ] {
+            let resp = app.clone().oneshot(plain_get(path)).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::NOT_FOUND, "{path}");
+            assert_eq!(body_json(resp).await["error"]["code"], "not_found");
+        }
+    }
+
+    #[tokio::test]
+    async fn delete_then_get_404() {
+        let app = router(test_state(50, 20));
+        let (share_id, token) = create_one(&app).await;
+        let resp = app.clone().oneshot(signed_delete(&share_id, &token)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let resp = app.oneshot(plain_get(&format!("/api/shares/{DEVICE}/{share_id}"))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn delete_wrong_token_404_and_share_survives() {
+        let app = router(test_state(50, 20));
+        let (share_id, _) = create_one(&app).await;
+        let resp = app.clone().oneshot(signed_delete(&share_id, "wrong-token-0000000000000000000")).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let resp = app.oneshot(plain_get(&format!("/api/shares/{DEVICE}/{share_id}"))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "错 token 不应误删");
     }
 }

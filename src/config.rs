@@ -2,21 +2,19 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 
 /// 全部来自环境变量；SHARE_HMAC_SECRET 必填，其余带默认。
-#[allow(dead_code)]
-// Task 4 接入 main 后删除本行 allow
 pub struct Config {
     pub listen: SocketAddr,
     pub db_path: PathBuf,
     pub base_url: String,
     pub secret: String,
+    #[allow(dead_code)]
+    // Task 5 静态托管接入后删除本行 allow
     pub web_dir: PathBuf,
     pub device_daily_limit: i64,
     pub ip_minute_limit: u32,
 }
 
 impl Config {
-    #[allow(dead_code)]
-    // Task 4 接入 main 后删除本行 allow
     pub fn from_env() -> anyhow::Result<Config> {
         let secret = std::env::var("SHARE_HMAC_SECRET")
             .map_err(|_| anyhow::anyhow!("SHARE_HMAC_SECRET 未设置"))?;

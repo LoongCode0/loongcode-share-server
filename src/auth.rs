@@ -20,6 +20,9 @@ fn canonical_message(timestamp: i64, method: &str, path: &str, body: &[u8], devi
     format!("{timestamp}\n{}\n{path}\n{body_hash}\n{device_id}", method.to_uppercase())
 }
 
+/// 仅测试使用：服务端运行时只做校验（verify 内联重算 HMAC）；
+/// 签名构造的生产实现在客户端仓库 share/sign.rs（双仓契约见 canonical_message 注释）。
+#[cfg(test)]
 pub fn compute_signature(secret: &str, timestamp: i64, method: &str, path: &str, body: &[u8], device_id: &str) -> String {
     let mut mac = HmacSha256::new_from_slice(secret.as_bytes()).expect("HMAC 接受任意长度密钥");
     mac.update(canonical_message(timestamp, method, path, body, device_id).as_bytes());
