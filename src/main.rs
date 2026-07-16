@@ -1,5 +1,6 @@
 mod auth;
 mod config;
+mod routes;
 mod store;
 
 fn main() {
