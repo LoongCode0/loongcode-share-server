@@ -34,7 +34,8 @@ impl Config {
                 .unwrap_or_else(|_| "https://share.loongcode.cc".into())
                 .trim_end_matches('/')
                 .to_string(),
-            secret,
+            // 存 trim 后的值:HMAC 密钥两端一致性要求(客户端同样 trim)
+            secret: secret.trim().to_string(),
             web_dir: std::env::var("SHARE_WEB_DIR")
                 .unwrap_or_else(|_| "./web/dist".into())
                 .into(),
