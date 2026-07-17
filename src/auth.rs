@@ -34,6 +34,18 @@ pub fn is_valid_device_id(s: &str) -> bool {
     s.len() == 16 && s.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
+/// 常量时间字节比较，避免密码/哈希比对产生时序侧信道。
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff: u8 = 0;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
 /// 校验通过返回 device_id。常量时间比较由 `Mac::verify_slice` 保证。
 #[allow(clippy::too_many_arguments)]
 pub fn verify(
@@ -99,6 +111,15 @@ mod tests {
     #[test]
     fn bad_hex_signature_rejected() {
         assert!(verify(SECRET, DEVICE, "1700000000", "zz-not-hex", "POST", "/api/shares", b"{}", 1_700_000_000).is_err());
+    }
+
+    #[test]
+    fn constant_time_eq_matches_and_differs() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"ab"), "长度不同应为 false");
+        assert!(!constant_time_eq(b"", b"a"));
+        assert!(constant_time_eq(b"", b""));
     }
 
     #[test]

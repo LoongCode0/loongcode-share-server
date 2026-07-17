@@ -221,7 +221,9 @@ const NOT_FOUND_MSG: &str = "分享不存在或已过期";
 
 async fn get_share_json(
     State(state): State<AppState>,
+    ConnectInfo(peer): ConnectInfo<std::net::SocketAddr>,
     Path((device_id, share_id)): Path<(String, String)>,
+    headers: HeaderMap,
 ) -> Response {
     if !crate::auth::is_valid_device_id(&device_id) || !is_valid_share_id(&share_id) {
         return err(StatusCode::NOT_FOUND, "not_found", NOT_FOUND_MSG);
@@ -230,6 +232,24 @@ async fn get_share_json(
     let db = state.db.lock().unwrap();
     match crate::store::get_share(&db, &device_id, &share_id, now) {
         Ok(Some(row)) => {
+            if let Some(hash) = &row.password_hash {
+                let provided = headers
+                    .get("x-share-password")
+                    .and_then(|v| v.to_str().ok())
+                    .unwrap_or("");
+                let provided_hash = hex::encode(sha2::Sha256::digest(provided.as_bytes()));
+                let matches = !provided.is_empty()
+                    && crate::auth::constant_time_eq(provided_hash.as_bytes(), hash.as_bytes());
+                if !matches {
+                    // 先释放 db 锁再拿 ip_hits 锁，避免同时持有两把锁（与 create_share 的加锁顺序一致）。
+                    drop(db);
+                    let ip = client_ip(&headers, &peer);
+                    if ip_over_limit(&state, &ip, now) {
+                        return err(StatusCode::TOO_MANY_REQUESTS, "rate_limited", "请求过于频繁，请稍后再试");
+                    }
+                    return err(StatusCode::UNAUTHORIZED, "password_required", "需要访问密码");
+                }
+            }
             let messages: serde_json::Value =
                 serde_json::from_str(&row.payload_json).unwrap_or_else(|_| json!([]));
             (
@@ -530,6 +550,69 @@ mod tests {
         assert_eq!(v["taskTitle"], "标题");
         assert_eq!(v["messages"].as_array().unwrap().len(), 2);
         assert_eq!(v["messages"][0]["role"], "user");
+    }
+
+    #[tokio::test]
+    async fn password_protected_share_requires_correct_header() {
+        let app = router(test_state(50, 20));
+        let resp = app.clone().oneshot(signed_post(&valid_body_with_password(), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let v = body_json(resp).await;
+        let share_id = v["shareId"].as_str().unwrap().to_string();
+        let password = v["password"].as_str().unwrap().to_string();
+
+        // 未带密码头 → 401，且不透传任何内容字段（核心安全约束的回归测试）
+        let resp = app.clone().oneshot(plain_get(&format!("/api/shares/{DEVICE}/{share_id}"))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+        let v = body_json(resp).await;
+        assert_eq!(v["error"]["code"], "password_required");
+        assert!(v.get("taskTitle").is_none(), "401 响应体不应包含任何内容字段");
+        assert!(v.get("messages").is_none(), "401 响应体不应包含任何内容字段");
+        assert!(v.get("workspaceName").is_none(), "401 响应体不应包含任何内容字段");
+
+        // 密码错误 → 同样 401
+        let mut req = plain_get(&format!("/api/shares/{DEVICE}/{share_id}"));
+        req.headers_mut().insert("x-share-password", "wrong-password".parse().unwrap());
+        let resp = app.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+
+        // 密码正确 → 200 + 完整内容
+        let mut req = plain_get(&format!("/api/shares/{DEVICE}/{share_id}"));
+        req.headers_mut().insert("x-share-password", password.parse().unwrap());
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let v = body_json(resp).await;
+        assert_eq!(v["taskTitle"], "标题");
+    }
+
+    #[tokio::test]
+    async fn share_without_password_ignores_header() {
+        let app = router(test_state(50, 20));
+        let (share_id, _) = create_one(&app).await;
+        // 未设密码的分享，任意密码头（甚至错误的）都当作通过
+        let mut req = plain_get(&format!("/api/shares/{DEVICE}/{share_id}"));
+        req.headers_mut().insert("x-share-password", "anything".parse().unwrap());
+        let resp = app.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn repeated_wrong_password_hits_ip_rate_limit() {
+        // ip_minute_limit = 2：创建请求本身也计入同一 IP 计数器（占 1 次），
+        // 故第 1 次错误密码是第 2 次命中（未超限，401），第 2 次错误密码是第 3 次命中（超限，429）。
+        let app = router(test_state(50, 2));
+        let resp = app.clone().oneshot(signed_post(&valid_body_with_password(), None)).await.unwrap();
+        let share_id = body_json(resp).await["shareId"].as_str().unwrap().to_string();
+
+        let mut req1 = plain_get(&format!("/api/shares/{DEVICE}/{share_id}"));
+        req1.headers_mut().insert("x-share-password", "wrong-1".parse().unwrap());
+        let r1 = app.clone().oneshot(req1).await.unwrap();
+        assert_eq!(r1.status(), StatusCode::UNAUTHORIZED, "第一次错误密码仍是 401");
+
+        let mut req2 = plain_get(&format!("/api/shares/{DEVICE}/{share_id}"));
+        req2.headers_mut().insert("x-share-password", "wrong-2".parse().unwrap());
+        let r2 = app.oneshot(req2).await.unwrap();
+        assert_eq!(r2.status(), StatusCode::TOO_MANY_REQUESTS, "第二次错误密码应触发限流");
     }
 
     #[tokio::test]
