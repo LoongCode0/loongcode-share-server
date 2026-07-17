@@ -37,6 +37,8 @@ pub struct CreateShareReq {
     pub task_title: String,
     pub expires_in_days: u8,
     pub messages: Vec<ShareMessage>,
+    #[serde(default)]
+    pub with_password: bool,
 }
 
 fn err(status: StatusCode, code: &str, message: &str) -> Response {
@@ -171,6 +173,8 @@ async fn create_share(
 
     let delete_token = rand_b62(32);
     let token_hash = hex::encode(sha2::Sha256::digest(delete_token.as_bytes()));
+    let password = req.with_password.then(|| rand_b62(32));
+    let password_hash = password.as_ref().map(|p| hex::encode(sha2::Sha256::digest(p.as_bytes())));
     let expires_at = now + i64::from(req.expires_in_days) * 86_400;
     let payload_json = serde_json::to_string(&req.messages).expect("已校验的 messages 必可序列化");
     for _ in 0..3 {
@@ -183,24 +187,24 @@ async fn create_share(
             payload_json: payload_json.clone(),
             message_count: req.messages.len() as i64,
             delete_token_hash: token_hash.clone(),
-            password_hash: None,
+            password_hash: password_hash.clone(),
             created_at: now,
             expires_at,
         };
         match crate::store::insert_share(&db, &row) {
             Ok(true) => {
                 let url = format!("{}/s/{}/{}", state.cfg.base_url, device, share_id);
-                return (
-                    StatusCode::OK,
-                    Json(json!({
-                        "shareId": share_id,
-                        "deviceId": device,
-                        "url": url,
-                        "deleteToken": delete_token,
-                        "expiresAt": expires_at,
-                    })),
-                )
-                    .into_response();
+                let mut body = json!({
+                    "shareId": share_id,
+                    "deviceId": device,
+                    "url": url,
+                    "deleteToken": delete_token,
+                    "expiresAt": expires_at,
+                });
+                if let Some(p) = &password {
+                    body["password"] = json!(p);
+                }
+                return (StatusCode::OK, Json(body)).into_response();
             }
             Ok(false) => continue,
             Err(_) => return err(StatusCode::INTERNAL_SERVER_ERROR, "internal", "存储错误"),
@@ -342,6 +346,11 @@ mod tests {
         r#"{"workspaceName":"longlong-ade","taskTitle":"标题","expiresInDays":1,"messages":[{"role":"user","text":"你好"},{"role":"assistant","text":"回复"}]}"#.into()
     }
 
+    fn valid_body_with_password() -> String {
+        let base = valid_body();
+        format!("{}{}", &base[..base.len() - 1], r#","withPassword":true}"#)
+    }
+
     /// 组一个带合法签名与 ConnectInfo 的 POST（oneshot 场景 ConnectInfo 走 extension 注入）。
     fn signed_post(body: &str, sig_override: Option<&str>) -> Request<Body> {
         let ts = now();
@@ -402,6 +411,33 @@ mod tests {
         let body = valid_body().replace(r#""role":"assistant""#, r#""role":"tool""#);
         let resp = app.oneshot(signed_post(&body, None)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn create_with_password_returns_password_field() {
+        let app = router(test_state(50, 20));
+        let resp = app.oneshot(signed_post(&valid_body_with_password(), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let v = body_json(resp).await;
+        let password = v["password"].as_str().expect("withPassword:true 应返回 password 字段");
+        assert_eq!(password.len(), 32, "密码应为 32 位随机串（与 deleteToken 同规格）");
+    }
+
+    #[tokio::test]
+    async fn create_without_password_field_omits_password() {
+        let app = router(test_state(50, 20));
+        let resp = app.oneshot(signed_post(&valid_body(), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let v = body_json(resp).await;
+        assert!(v.get("password").is_none(), "未请求密码保护时响应不应含 password 字段");
+    }
+
+    #[tokio::test]
+    async fn old_style_create_request_without_with_password_field_still_succeeds() {
+        // 老版本客户端请求体里根本没有 withPassword 键——前向兼容回归测试。
+        let app = router(test_state(50, 20));
+        let resp = app.oneshot(signed_post(&valid_body(), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "缺失 withPassword 字段不应导致请求失败");
     }
 
     #[tokio::test]

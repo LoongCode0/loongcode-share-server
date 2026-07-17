@@ -41,7 +41,7 @@ X-Signature: <hex(HMAC-SHA256(secret, 规范化串))，64 位小写十六进制>
 
 | 方法 | 路径 | 签名 | 说明 |
 |---|---|---|---|
-| POST | `/api/shares` | 需要 | 创建分享。body：`{"workspaceName","taskTitle","expiresInDays":1\|3\|7,"messages":[{"role":"user"\|"assistant","text"}]}`。响应：`{"shareId","deviceId","url","deleteToken","expiresAt"}` |
+| POST | `/api/shares` | 需要 | 创建分享。body：`{"workspaceName","taskTitle","expiresInDays":1\|3\|7,"messages":[{"role":"user"\|"assistant","text"}],"withPassword":false}`（`withPassword` 可省略，默认 false）。响应：`{"shareId","deviceId","url","deleteToken","expiresAt"}`，`withPassword:true` 时额外含 `"password"`（明文，仅此一次） |
 | GET | `/api/shares/{deviceId}/{shareId}` | 不需要（链接即凭证） | 分享 JSON：`{"workspaceName","taskTitle","createdAt","expiresAt","messages"}` |
 | DELETE | `/api/shares/{deviceId}/{shareId}` | 需要 | 撤销。body：`{"deleteToken":"..."}`；签名设备必须等于路径 deviceId |
 | GET | `/s/{deviceId}/{shareId}` | 不需要 | 分享页（SPA） |
