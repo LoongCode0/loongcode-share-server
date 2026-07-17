@@ -241,7 +241,7 @@ async fn get_share_json(
                 let matches = !provided.is_empty()
                     && crate::auth::constant_time_eq(provided_hash.as_bytes(), hash.as_bytes());
                 if !matches {
-                    // 先释放 db 锁再拿 ip_hits 锁，避免同时持有两把锁（与 create_share 的加锁顺序一致）。
+                    // 先释放 db 锁再拿 ip_hits 锁；与 create_share 一样，两处均不同时持有两把锁（顺序相反但都不嵌套）。
                     drop(db);
                     let ip = client_ip(&headers, &peer);
                     if ip_over_limit(&state, &ip, now) {

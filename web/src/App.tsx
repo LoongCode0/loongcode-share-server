@@ -216,7 +216,7 @@ export function App() {
       const headers: Record<string, string> = {};
       if (password) headers["X-Share-Password"] = password;
       const r = await fetch(`/api/shares/${device}/${share}`, { headers });
-      if (r.status === 404) { setState({ kind: "notFound" }); return; }
+      if (r.status === 404) { clearStoredPassword(device, share); setState({ kind: "notFound" }); return; }
       if (r.status === 401) {
         if (password) clearStoredPassword(device, share);
         setState({ kind: "passwordPrompt", wrongAttempt: !!password });
