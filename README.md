@@ -56,8 +56,8 @@ X-Signature: <hex(HMAC-SHA256(secret, 规范化串))，64 位小写十六进制>
 |---|---|---|
 | 400 | bad_request | body 解析失败 / 字段校验失败 |
 | 401 | unauthorized | 签名缺失、不匹配或时间窗外 |
-| 404 | not_found | 分享不存在、已过期、ID 格式非法、删除凭证不符、签名设备≠路径设备——统一同码同文案，防枚举探测 |
 | 401 | password_required | 分享设了访问密码，但未带 `X-Share-Password` 或密码错误 |
+| 404 | not_found | 分享不存在、已过期、ID 格式非法、删除凭证不符、签名设备≠路径设备——统一同码同文案，防枚举探测 |
 | 413 | payload_too_large | 请求体超过 2MB |
 | 429 | rate_limited | 设备日限或 IP 分钟限触发 |
 | 500 | internal | 存储等内部错误 |

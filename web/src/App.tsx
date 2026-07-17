@@ -125,7 +125,7 @@ function PasswordPrompt({ wrongAttempt, onSubmit }: { wrongAttempt: boolean; onS
       >
         <input
           className="pwd-input"
-          type="text"
+          type="password"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           placeholder="请输入访问密码"
