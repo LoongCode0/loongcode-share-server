@@ -183,6 +183,7 @@ async fn create_share(
             payload_json: payload_json.clone(),
             message_count: req.messages.len() as i64,
             delete_token_hash: token_hash.clone(),
+            password_hash: None,
             created_at: now,
             expires_at,
         };
