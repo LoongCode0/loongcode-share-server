@@ -6,3 +6,6 @@
 /.superpowers
 *.log
 .env
+
+# Claude Code session state
+.claude/
