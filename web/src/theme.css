@@ -91,3 +91,21 @@ body { margin: 0; background: var(--bg); color: var(--fg-soft); font: 14px/1.8 s
   white-space: nowrap;
 }
 .pwd-error { color: #d97757; font-size: 12px; margin-top: 8px; }
+
+/* ===== 工具行（包含工具的分享） ===== */
+:root { --ok: #8fbf7f; --err: #d97757; }
+html[data-theme="light"] { --ok: #4a7d3a; --err: #b8502f; }
+html[data-theme="eyecare"] { --ok: #4a7d52; --err: #b0583a; }
+
+.tool-group { margin-top: 10px; border-left: 2px solid var(--border); padding-left: 10px; display: flex; flex-direction: column; gap: 4px; }
+.tool-row { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); min-width: 0; }
+.tool-sym { flex: none; }
+.tool-sym-ok { color: var(--ok); }
+.tool-sym-err { color: var(--err); }
+.tool-sym-running { color: var(--muted); }
+.tool-name { flex: none; font-weight: 600; color: var(--fg-soft); }
+.tool-target { font-family: ui-monospace, Consolas, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tool-part { font-size: 12px; white-space: nowrap; }
+.tool-part-ok { color: var(--ok); }
+.tool-part-err { color: var(--err); }
+.tool-part-muted { color: var(--muted); }

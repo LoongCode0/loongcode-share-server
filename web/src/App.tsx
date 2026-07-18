@@ -55,7 +55,14 @@ function useTheme(): { theme: ThemeName; cycleTheme: () => void } {
   return { theme, cycleTheme };
 }
 
-interface ShareMessage { role: "user" | "assistant"; text: string }
+interface ShareToolSummaryPart { text: string; tone: "ok" | "err" | "muted" }
+interface ShareToolPayload {
+  name: string;
+  target?: string;
+  summary?: ShareToolSummaryPart[];
+  status: "ok" | "err" | "running";
+}
+interface ShareMessage { role: "user" | "assistant" | "tool"; text: string; tool?: ShareToolPayload }
 interface ShareData {
   workspaceName: string;
   taskTitle: string;
@@ -138,6 +145,50 @@ function PasswordPrompt({ wrongAttempt, onSubmit }: { wrongAttempt: boolean; onS
   );
 }
 
+/** 连续 tool 消息聚为一组（左侧竖线分组，同一回合的工具行视觉成组）。 */
+type MsgBlock = { kind: "single"; m: ShareMessage } | { kind: "tools"; items: ShareMessage[] };
+function groupMessages(messages: ShareMessage[]): MsgBlock[] {
+  const blocks: MsgBlock[] = [];
+  for (const m of messages) {
+    if (m.role === "tool") {
+      const last = blocks[blocks.length - 1];
+      if (last && last.kind === "tools") last.items.push(m);
+      else blocks.push({ kind: "tools", items: [m] });
+    } else {
+      blocks.push({ kind: "single", m });
+    }
+  }
+  return blocks;
+}
+
+/** 只读工具行：状态符 + 名称 + 目标（mono 截断）+ 摘要分段。不可点、不可展开。 */
+function ToolGroup({ items }: { items: ShareMessage[] }) {
+  // 防御：role=tool 但缺 tool 字段的畸形行跳过（正常 payload 服务器已拦，不会走到）
+  const rows = items.filter((m) => m.tool);
+  if (rows.length === 0) return null;
+  return (
+    <div className="tool-group">
+      {rows.map((m, i) => {
+        const tl = m.tool!;
+        return (
+          <div key={i} className="tool-row">
+            <span className={`tool-sym tool-sym-${tl.status}`} aria-hidden>
+              {tl.status === "ok" ? "✓" : tl.status === "err" ? "✗" : "…"}
+            </span>
+            <span className="tool-name">{tl.name}</span>
+            {tl.target && (
+              <span className="tool-target" title={tl.target}>{tl.target}</span>
+            )}
+            {tl.summary?.map((p, j) => (
+              <span key={j} className={`tool-part tool-part-${p.tone}`}>{p.text}</span>
+            ))}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ShareView({
   state, theme, cycleTheme, onSubmitPassword,
 }: {
@@ -186,13 +237,15 @@ function ShareView({
         </div>
       </section>
       <main>
-        {data.messages.map((m, i) =>
-          m.role === "user" ? (
-            <div key={i} className="row user"><div className="bubble">{m.text}</div></div>
+        {groupMessages(data.messages).map((b, i) =>
+          b.kind === "tools" ? (
+            <ToolGroup key={i} items={b.items} />
+          ) : b.m.role === "user" ? (
+            <div key={i} className="row user"><div className="bubble">{b.m.text}</div></div>
           ) : (
             <div key={i} className="row assistant">
               <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
-                {m.text}
+                {b.m.text}
               </ReactMarkdown>
             </div>
           ),
