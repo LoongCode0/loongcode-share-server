@@ -161,6 +161,10 @@ function groupMessages(messages: ShareMessage[]): MsgBlock[] {
   return blocks;
 }
 
+function toolStatusLabel(status: ShareToolPayload["status"]): string {
+  return status === "ok" ? "成功" : status === "err" ? "失败" : "运行中";
+}
+
 /** 只读工具行：状态符 + 名称 + 目标（mono 截断）+ 摘要分段。不可点、不可展开。 */
 function ToolGroup({ items }: { items: ShareMessage[] }) {
   // 防御：role=tool 但缺 tool 字段的畸形行跳过（正常 payload 服务器已拦，不会走到）
@@ -172,6 +176,7 @@ function ToolGroup({ items }: { items: ShareMessage[] }) {
         const tl = m.tool!;
         return (
           <div key={i} className="tool-row">
+            <span className="sr-only">{toolStatusLabel(tl.status)}</span>
             <span className={`tool-sym tool-sym-${tl.status}`} aria-hidden>
               {tl.status === "ok" ? "✓" : tl.status === "err" ? "✗" : "…"}
             </span>
