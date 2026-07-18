@@ -15,6 +15,10 @@ pub const MAX_MESSAGES: usize = 500;
 pub const MAX_TEXT_BYTES: usize = 100_000;
 pub const MAX_TITLE_CHARS: usize = 200;
 pub const BODY_LIMIT_BYTES: usize = 2 * 1024 * 1024;
+pub const MAX_TOOL_NAME_CHARS: usize = 64;
+pub const MAX_TOOL_TARGET_CHARS: usize = 1024;
+pub const MAX_TOOL_SUMMARY_PARTS: usize = 8;
+pub const MAX_TOOL_PART_CHARS: usize = 1024;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -25,9 +29,27 @@ pub struct AppState {
 }
 
 #[derive(Deserialize, Serialize, Clone)]
+pub struct ShareToolSummaryPart {
+    pub text: String,
+    pub tone: String, // "ok" | "err" | "muted"
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct ShareToolPayload {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<Vec<ShareToolSummaryPart>>,
+    pub status: String, // "ok" | "err" | "running"
+}
+
+#[derive(Deserialize, Serialize, Clone)]
 pub struct ShareMessage {
     pub role: String,
     pub text: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<ShareToolPayload>,
 }
 
 #[derive(Deserialize)]
@@ -65,11 +87,48 @@ fn validate(req: &CreateShareReq) -> Result<(), &'static str> {
         return Err("标题过长");
     }
     for m in &req.messages {
-        if m.role != "user" && m.role != "assistant" {
-            return Err("role 非法");
-        }
-        if m.text.len() > MAX_TEXT_BYTES {
-            return Err("单条消息过长");
+        match m.role.as_str() {
+            "user" | "assistant" => {
+                if m.tool.is_some() {
+                    return Err("user/assistant 消息不得携带 tool 字段");
+                }
+                if m.text.len() > MAX_TEXT_BYTES {
+                    return Err("单条消息过长");
+                }
+            }
+            "tool" => {
+                if !m.text.is_empty() {
+                    return Err("tool 消息 text 必须为空串");
+                }
+                let Some(t) = &m.tool else {
+                    return Err("tool 消息缺少 tool 字段");
+                };
+                if t.name.is_empty() || t.name.chars().count() > MAX_TOOL_NAME_CHARS {
+                    return Err("tool.name 非法");
+                }
+                if let Some(tg) = &t.target {
+                    if tg.chars().count() > MAX_TOOL_TARGET_CHARS {
+                        return Err("tool.target 过长");
+                    }
+                }
+                if let Some(parts) = &t.summary {
+                    if parts.len() > MAX_TOOL_SUMMARY_PARTS {
+                        return Err("tool.summary 段数过多");
+                    }
+                    for p in parts {
+                        if p.text.chars().count() > MAX_TOOL_PART_CHARS {
+                            return Err("tool.summary 单段过长");
+                        }
+                        if !["ok", "err", "muted"].contains(&p.tone.as_str()) {
+                            return Err("tool.summary tone 非法");
+                        }
+                    }
+                }
+                if !["ok", "err", "running"].contains(&t.status.as_str()) {
+                    return Err("tool.status 非法");
+                }
+            }
+            _ => return Err("role 非法"),
         }
     }
     Ok(())
@@ -366,6 +425,10 @@ mod tests {
         r#"{"workspaceName":"longlong-ade","taskTitle":"标题","expiresInDays":1,"messages":[{"role":"user","text":"你好"},{"role":"assistant","text":"回复"}]}"#.into()
     }
 
+    fn valid_body_with_tool() -> String {
+        r#"{"workspaceName":"ws","taskTitle":"t","expiresInDays":1,"messages":[{"role":"user","text":"问"},{"role":"tool","text":"","tool":{"name":"Edit","target":"src/foo.rs","summary":[{"text":"+8","tone":"ok"},{"text":" −2","tone":"err"}],"status":"ok"}},{"role":"assistant","text":"答"}]}"#.into()
+    }
+
     fn valid_body_with_password() -> String {
         let base = valid_body();
         format!("{}{}", &base[..base.len() - 1], r#","withPassword":true}"#)
@@ -426,11 +489,69 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn bad_role_400() {
+    async fn unknown_role_still_400() {
+        let app = router(test_state(50, 20));
+        let body = valid_body().replace(r#""role":"assistant""#, r#""role":"system""#);
+        let resp = app.oneshot(signed_post(&body, None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn tool_role_missing_tool_field_400() {
         let app = router(test_state(50, 20));
         let body = valid_body().replace(r#""role":"assistant""#, r#""role":"tool""#);
         let resp = app.oneshot(signed_post(&body, None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "role=tool 缺 tool 字段应 400");
+    }
+
+    #[tokio::test]
+    async fn tool_role_nonempty_text_400() {
+        let app = router(test_state(50, 20));
+        let body = valid_body_with_tool().replace(r#""role":"tool","text":"""#, r#""role":"tool","text":"x""#);
+        let resp = app.oneshot(signed_post(&body, None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "tool 消息 text 非空应 400");
+    }
+
+    #[tokio::test]
+    async fn user_role_with_tool_field_400() {
+        let app = router(test_state(50, 20));
+        let body = valid_body().replace(
+            r#"{"role":"user","text":"你好"}"#,
+            r#"{"role":"user","text":"你好","tool":{"name":"Bash","status":"ok"}}"#,
+        );
+        let resp = app.oneshot(signed_post(&body, None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "user 消息携带 tool 字段应 400");
+    }
+
+    #[tokio::test]
+    async fn tool_bad_status_or_tone_400() {
+        let app = router(test_state(50, 20));
+        let bad_status = valid_body_with_tool().replace(r#""status":"ok""#, r#""status":"done""#);
+        let resp = app.clone().oneshot(signed_post(&bad_status, None)).await.unwrap();
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        let bad_tone = valid_body_with_tool().replace(r#""tone":"ok""#, r#""tone":"red""#);
+        let resp = app.oneshot(signed_post(&bad_tone, None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn tool_message_roundtrip_faithful() {
+        let app = router(test_state(50, 20));
+        let resp = app.clone().oneshot(signed_post(&valid_body_with_tool(), None)).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let share_id = body_json(resp).await["shareId"].as_str().unwrap().to_string();
+        let resp = app.oneshot(plain_get(&format!("/api/shares/{DEVICE}/{share_id}"))).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let v = body_json(resp).await;
+        let msgs = v["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 3);
+        assert_eq!(msgs[1]["role"], "tool");
+        assert_eq!(msgs[1]["tool"]["name"], "Edit");
+        assert_eq!(msgs[1]["tool"]["summary"][1]["text"], " −2");
+        assert_eq!(msgs[1]["tool"]["summary"][1]["tone"], "err");
+        // user/assistant 消息不应出现 tool 键（skip_serializing_if）
+        assert!(msgs[0].get("tool").is_none());
+        assert!(msgs[2].get("tool").is_none());
     }
 
     #[tokio::test]
