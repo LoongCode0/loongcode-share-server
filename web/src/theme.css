@@ -110,6 +110,19 @@ html[data-theme="eyecare"] { --ok: #4a7d52; --err: #b0583a; }
 .tool-part-err { color: var(--err); }
 .tool-part-muted { color: var(--muted); }
 
+/* ===== AskUserQuestion 问答记录块（对齐客户端 tool_ask 行：🔧 斜体多行） ===== */
+.ask-block {
+  margin-top: 10px;
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--muted);
+  overflow-wrap: break-word;
+}
+.ask-head { font-weight: 600; color: var(--fg-soft); }
+.ask-line { white-space: pre-wrap; }
+
 .sr-only {
   position: absolute;
   width: 1px;

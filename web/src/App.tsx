@@ -147,10 +147,16 @@ function PasswordPrompt({ wrongAttempt, onSubmit }: { wrongAttempt: boolean; onS
 
 /** 连续 tool 消息聚为一组（左侧竖线分组，同一回合的工具行视觉成组）。 */
 type MsgBlock = { kind: "single"; m: ShareMessage } | { kind: "tools"; items: ShareMessage[] };
+
+/** AskUserQuestion 问答记录：wire 上是 name==="AskUserQuestion" 的 tool 消息，但不进工具组，单独多行渲染。 */
+function isAskMessage(m: ShareMessage): boolean {
+  return m.role === "tool" && m.tool?.name === "AskUserQuestion";
+}
+
 function groupMessages(messages: ShareMessage[]): MsgBlock[] {
   const blocks: MsgBlock[] = [];
   for (const m of messages) {
-    if (m.role === "tool") {
+    if (m.role === "tool" && !isAskMessage(m)) {
       const last = blocks[blocks.length - 1];
       if (last && last.kind === "tools") last.items.push(m);
       else blocks.push({ kind: "tools", items: [m] });
@@ -190,6 +196,20 @@ function ToolGroup({ items }: { items: ShareMessage[] }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** AskUserQuestion 问答记录块：与客户端应用内 tool_ask 行一致的多行只读展示（标题 + 每行「问题 → 答案」）。 */
+function AskBlock({ m }: { m: ShareMessage }) {
+  const tl = m.tool;
+  if (!tl) return null;
+  return (
+    <div className="ask-block">
+      <div className="ask-head">🔧 {tl.name}</div>
+      {tl.summary?.map((p, i) => (
+        <div key={i} className="ask-line">{p.text}</div>
+      ))}
     </div>
   );
 }
@@ -245,6 +265,8 @@ function ShareView({
         {groupMessages(data.messages).map((b, i) =>
           b.kind === "tools" ? (
             <ToolGroup key={i} items={b.items} />
+          ) : isAskMessage(b.m) ? (
+            <AskBlock key={i} m={b.m} />
           ) : b.m.role === "user" ? (
             <div key={i} className="row user"><div className="bubble">{b.m.text}</div></div>
           ) : (
